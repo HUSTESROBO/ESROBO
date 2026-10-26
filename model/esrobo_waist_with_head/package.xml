@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>esrobo_waist_with_head</name>
+  <version>0.1.0</version>
+  <description>ESROBO robot description and source-tracked visual/collision meshes.</description>
+  <maintainer email="2763358664@qq.com">Yan Wang</maintainer>
+  <license>BSD</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

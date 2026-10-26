@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.8)
+project(esrobo_waist_with_head)
+find_package(ament_cmake REQUIRED)
+install(DIRECTORY urdf meshes DESTINATION share/${PROJECT_NAME})
+install(FILES SOURCE.json DESTINATION share/${PROJECT_NAME})
+ament_package()

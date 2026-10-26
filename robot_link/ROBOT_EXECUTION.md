@@ -300,8 +300,8 @@ SDK 返回成功说明发送调用成功，不证明机械臂已经到位；真�
 | [session.py](esrobo_link/session.py) | `accept`、`fresh`：整包接纳、最新目标和有效期 |
 | [gateway.py](esrobo_link/gateway.py) | `network_loop`、`request`、`tick`、`run`：线程与状态机 |
 | [backends.py](esrobo_link/backends.py) | `HardwareBackend`、`DualBackend`：真实单侧/双侧执行顺序 |
-| [nero_driver.py](../teleoperation/src/esrobo_teleop/robot/nero_driver.py) | `initialize_command_trajectory`、`_command_trajectory_full_urdf`、`move_j` |
-| [command_trajectory.py](../teleoperation/src/esrobo_teleop/robot/command_trajectory.py) | `propose`、`commit`：候选轨迹和提交 |
-| [linker_hand_driver.py](../teleoperation/src/esrobo_teleop/robot/linker_hand_driver.py) | `command_physical_batch`、`_apply_safety`、`_send_physical` |
-| [hand_ros_bridge.py](../teleoperation/bridges/hand_ros_bridge.py) | `spin_once`、`_send_feedback`：本机手部命令与反馈桥 |
-| [teleop_config.yaml](../teleoperation/config/teleop_config.yaml) | 本文列出的实际默认部署参数 |
+| [nero_driver.py](https://github.com/SaluteYan/esrobo/blob/f82c2ffdf55385ac48ee72c3de9f99c3f4151011/teleoperation/src/esrobo_teleop/robot/nero_driver.py) | `initialize_command_trajectory`、`_command_trajectory_full_urdf`、`move_j` |
+| [command_trajectory.py](https://github.com/SaluteYan/esrobo/blob/f82c2ffdf55385ac48ee72c3de9f99c3f4151011/teleoperation/src/esrobo_teleop/robot/command_trajectory.py) | `propose`、`commit`：候选轨迹和提交 |
+| [linker_hand_driver.py](https://github.com/SaluteYan/esrobo/blob/f82c2ffdf55385ac48ee72c3de9f99c3f4151011/teleoperation/src/esrobo_teleop/robot/linker_hand_driver.py) | `command_physical_batch`、`_apply_safety`、`_send_physical` |
+| [hand_ros_bridge.py](https://github.com/SaluteYan/esrobo/blob/f82c2ffdf55385ac48ee72c3de9f99c3f4151011/teleoperation/bridges/hand_ros_bridge.py) | `spin_once`、`_send_feedback`：本机手部命令与反馈桥 |
+| [teleop_config.yaml](https://github.com/SaluteYan/esrobo/blob/f82c2ffdf55385ac48ee72c3de9f99c3f4151011/teleoperation/config/teleop_config.yaml) | 本文列出的实际默认部署参数 |

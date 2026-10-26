@@ -1,14 +1,10 @@
 # ESROBO 逐部件真机调试记录
 
-本平台仓库不包含 `laptop_teleop/` 应用源码；下文涉及该路径的历史命令需在[原应用仓库](https://github.com/SaluteYan/esrobo/tree/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop)执行。设备驱动、通信网关及共用控制组件仍位于本仓库。
-
 本仓库是 ESROBO 移动双臂机器人 ROS 2 工作空间，运行环境以 Ubuntu 22.04 + ROS 2 Humble 为主。系统包含移动底盘、双 NERO 七轴机械臂、三轴腰部关节、头部云台舵机、双五指灵巧手、头部/腕部相机、激光雷达和双六维力传感器。
 
 本文档保留此前根 README 中的逐部件调试命令，供现场排障参考。设备状态、编码器零位、CAN 枚举和控制器故障会随部署变化；执行任何运动命令前须重新核对现场反馈。第一次上电调试时不要直接启动整机总 launch，建议按本文档顺序逐项验证。
 
-当前本机计算端入口见 [`laptop_teleop/README.md`](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/README.md)：采集 PICO Body 与 Hand，执行重定向和 IK，通过 UDP 16000 向 `192.168.10.100` 上的 [`robot_link`](robot_link/README.md) 网关发送目标。当前流程不依赖 SenseGlove。首次安装、SSH 配置和每日启动指令见 [`laptop_teleop/docs/`](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/docs/01_README.md)。SSH 用于机器人端操作，CAN/ROS 底层驱动继续运行在机器人主机。
-
-本机统一网页入口：在仓库根目录运行 `./laptop_teleop/scripts/run_dashboard.sh`，打开 `http://127.0.0.1:8080`。页面集中管理机器人/本机程序、模式与标定，可在相机和 PICO 骨架间切换，并提供运动停止及左臂、右臂、双手、头部的独立失能。具体步骤见 [网页操作文档](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/docs/05_WEB_CONSOLE.md)。
+平台通信接入见 [robot_link](robot_link/README.md)，遥操作等应用的运行说明见[组织主页](https://github.com/HUSTESROBO)。
 
 ## 硬件组成
 
@@ -41,9 +37,9 @@ src/OrbbecSDK_ROS2           Orbbec 头部相机驱动
 src/realsense-ros            RealSense 腕部相机驱动
 src/rslidar_sdk-main         RoboSense 激光雷达驱动
 src/esrobo_system            系统集成相关代码，目前不建议作为首轮调试入口
-teleoperation/urdf/esrobo_waist_with_head.urdf
-                              当前遥操作整机 URDF，含底盘、腰部、头部、双 NERO 机械臂和 L20Lite 双手模型
-teleoperation/assets/esrobo_waist_with_head/meshes
+model/esrobo_waist_with_head/urdf/esrobo_waist_with_head.urdf
+                              平台整机 URDF，含底盘、腰部、头部、双 NERO 机械臂和 L20Lite 双手模型
+model/esrobo_waist_with_head/meshes
                               当前模型网格资源
 document                     随仓库整理的设备和整机操作手册 PDF
 start_can.sh                 当前真机 CAN 命名和波特率初始化脚本
@@ -72,15 +68,15 @@ start_can.sh                 当前真机 CAN 命名和波特率初始化脚本
 当前整机模型主文件：
 
 ```text
-teleoperation/urdf/esrobo_waist_with_head.urdf
+model/esrobo_waist_with_head/urdf/esrobo_waist_with_head.urdf
 ```
 
 该文件以原始 ESROBO 腰部/头部/底盘 URDF 为主体，补充了左右 NERO 七轴机械臂、NERO 末端法兰、左右力传感器安装件和 LinkerHand L20Lite 双手。当前网格资源位于：
 
 ```text
-teleoperation/assets/esrobo_waist_with_head/meshes/nero
-teleoperation/assets/esrobo_waist_with_head/meshes/linkerhand_l20lite/left
-teleoperation/assets/esrobo_waist_with_head/meshes/linkerhand_l20lite/right
+model/esrobo_waist_with_head/meshes/nero
+model/esrobo_waist_with_head/meshes/linkerhand_l20lite/left
+model/esrobo_waist_with_head/meshes/linkerhand_l20lite/right
 ```
 
 命名约定：
@@ -107,7 +103,7 @@ teleoperation/assets/esrobo_waist_with_head/meshes/linkerhand_l20lite/right
 校验 URDF 语法：
 
 ```bash
-xmllint --noout teleoperation/urdf/esrobo_waist_with_head.urdf
+xmllint --noout model/esrobo_waist_with_head/urdf/esrobo_waist_with_head.urdf
 ```
 
 当前模型结构检查结果为 72 个 link、71 个 joint、单一 root link `base_link`，无重复 link/joint，parent/child 引用完整。
@@ -512,7 +508,7 @@ ros2 launch servo_driver start_servo.py
 
 默认只读，不自动使能或移动；使用 `ros2 topic echo /head/state --once` 检查反馈。
 旧 `/servo/ctrl` 接口已移除。需要调整时按
-[操作手册第 11 节](teleoperation/TELEOPERATION_RUNBOOK.md#11-头部相机与网页视角调整)
+[头部舵机说明](#头部舵机)
 先托稳头部，使用 `allow_motion:=true` 启动驱动，通过 PICO 网页的“头部相机”页
 查看实时图像、开启调整、设置目标和锁定姿态。成功到位后可以连续调整，无需逐次调用 ROS 命令。
 ID1 俯仰范围 1000～2700，ID2 左右范围 2000～5000，单位为原始计数；

@@ -1,2 +1,1 @@
-model/*.STEP filter=lfs diff=lfs merge=lfs -text
-model/urdf/esrobo_waist_with_head/meshes/*.STL filter=lfs diff=lfs merge=lfs -text
+model/esrobo_waist_with_head/meshes/** filter=lfs diff=lfs merge=lfs -text

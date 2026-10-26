@@ -4,9 +4,9 @@
 
 **移动双臂灵巧手机器人开发平台**
 
-硬件与驱动 · 机器人模型 · 通信协议 · 遥操作与研究项目
+硬件与驱动 · 开发文档 · 机器人模型 · 通信协议
 
-[开发文档](document/README.md) · [设备驱动](src/README.md) · [通信接口](robot_link/README.md) · [平台应用](#平台应用)
+[开发文档](document/README.md) · [设备驱动](src/README.md) · [通信接口](robot_link/README.md) · [应用项目](https://github.com/HUSTESROBO)
 
 </div>
 
@@ -14,7 +14,7 @@
 
 ESROBO 是一套集成移动底盘、双七轴机械臂和双五指灵巧手的机器人平台。本仓库提供开发该平台所需的设备驱动、硬件文档、模型和机器人主机通信接口，供遥操作、仿真及后续研究项目复用。主要部署环境为 **Ubuntu 22.04 / ROS 2 Humble**。
 
-平台代码与具体应用分层介绍：先了解机器人、接通设备和通信接口，再选择平台上的项目。本仓库保留机器人执行所需的公共控制组件；应用代码由各项目维护。平台来源、版本和初始拆分范围见 [SOURCE.md](SOURCE.md)。
+平台代码与具体应用分层介绍：先了解机器人、接通设备和通信接口，再选择平台上的项目。本仓库集中维护平台基础资源，遥操作与仿真项目统一从[组织主页](https://github.com/HUSTESROBO)进入。平台来源和内容边界见 [SOURCE.md](SOURCE.md)。
 
 ## 机器人平台
 
@@ -41,7 +41,7 @@ flowchart TB
     V[相机图像服务] --> A
 ```
 
-应用负责生成目标，机器人主机负责校验与执行。控制和反馈使用 UDP，SSH 用于部署及服务管理，图像走独立通道。机器人端始终保留反馈检查和执行约束；网络接纳目标不等于实体已执行到位。
+应用负责生成目标，机器人主机负责校验与执行。控制和反馈使用 UDP，SSH 用于部署及服务管理，图像走独立通道。机器人端的执行组件按[固定外部版本](robot_link/RUNTIME.md)安装，保留反馈检查和运动约束；网络接纳目标不等于实体已执行到位。
 
 ## 基础开发资源
 
@@ -55,7 +55,7 @@ flowchart TB
 
 [`document/`](document/README.md) 是平台开发文档入口，集中索引整机及厂家 PDF、硬件调试、通信和应用开发资料。
 
-当前运动学模型位于 [`teleoperation/urdf/`](teleoperation/urdf/)，包含机械臂与灵巧手的连接关系、关节限位和 mimic 联动。关节命名与零位说明见 [整机 URDF 模型](HARDWARE_BRINGUP.md#整机-urdf-模型)。网络机械臂目标使用 URDF 弧度；物理电机方向和偏置在机器人端处理，手部控制单位与模型角度需按标定转换。
+独立的机器人模型位于 [`model/`](model/README.md)，包含机械臂与灵巧手的连接关系、关节限位和 mimic 联动。关节命名与零位说明见 [整机 URDF 模型](HARDWARE_BRINGUP.md#整机-urdf-模型)。网络机械臂目标使用 URDF 弧度；物理电机方向和偏置在机器人端处理，手部控制单位与模型角度需按标定转换。
 
 ### 机器人通信协议
 
@@ -77,22 +77,10 @@ flowchart TB
 | --- | --- |
 | 了解或搭建 ESROBO | [硬件与手册](document/README.md) → [逐部件调试](HARDWARE_BRINGUP.md) → [驱动索引](src/README.md) |
 | 在平台上实现新控制程序 | [通信模块](robot_link/README.md) → [协议](robot_link/PROTOCOL.md) → [执行行为](robot_link/ROBOT_EXECUTION.md) → mock 端点联调 |
-| 使用当前 PICO 遥操作 | [应用 README](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/README.md) → [两机连接](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/docs/02_ROBOT_CONNECTION.md) → [网页操作](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/docs/05_WEB_CONSOLE.md) |
-| 研究重定向、IK 与灵巧手算法 | [代码与计算](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/docs/07_CODE_AND_COMPUTATION.md) → [技术方案](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/docs/09_TECHNICAL_SCHEME.md) |
-| 运行仿真与回放 | [现有仿真项目](https://github.com/SaluteYan/Dual-arm-teleoperation)的环境、资产和复现说明 |
 
 机器人驱动使用 ROS 2 工作空间，通信客户端和本机应用是独立 Python 包。安装方式以各模块 README 为准；只克隆源码不能替代 SDK、模型资产、环境与设备准备。
 
-## 平台应用
-
-每个项目围绕 ESROBO 的具体用途维护自己的安装说明、方法、实验和验证记录。项目独立仓库逐步整理，下面明确区分现有入口与待拆分内容。
-
-| 项目 | 内容 | 当前入口与状态 |
-| --- | --- | --- |
-| **PICO 实机遥操作** | PICO Body/Hand 输入、人体标定、臂手重定向、IK、网页控制台和双机执行 | [`laptop_teleop`](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/README.md)；代码保留在原仓库，拟独立为 `esrobo-teleop` |
-| **仿真遥操作与回放** | IsaacLab 仿真基线、ESROBO 资产、PICO/SenseGlove 输入与录制回放 | [Dual-arm-teleoperation](https://github.com/SaluteYan/Dual-arm-teleoperation)；现有独立仓库，新组织归属待整理 |
-
-新的平台项目在此追加实际仓库链接、用途、所需平台版本和验证范围。尚未建立的项目不提供虚构仓库链接。
+应用项目及其运行方法见 [HUSTESROBO 组织主页](https://github.com/HUSTESROBO)。
 
 ### 当前目录与项目边界
 
@@ -103,16 +91,16 @@ esrobo/
 ├── src/                     ROS 2 设备驱动与第三方 SDK
 ├── document/                文档索引与厂家手册
 ├── robot_link/              通信协议、客户端和机器人执行网关
-├── teleoperation/           当前共用模型、IK、驱动与旧一体式入口
+├── model/                   独立整机 URDF、视觉／碰撞网格和来源清单
 ├── SOURCE.md                平台快照来源、依赖版本与整理记录
 ├── start_can.sh             CAN 初始化参考
 └── 99-fixed-can.rules       设备命名参考
 ```
 
-`teleoperation/` 的算法源自仿真项目，但当前目录还承载实机共用组件：`robot_link` 导入其中的 NERO/手部驱动，`laptop_teleop` 导入其中的配置、人体重定向和 IK。该目录的 `--no-robot` 与模拟人体输入用于离线检查，不能等同于完整 IsaacLab 动力学仿真。独立项目拆分需先明确这些公共组件的依赖和版本，详见 [平台来源与边界](SOURCE.md)。
+本仓库不包含遥操作采集、IK、控制台或旧单机程序。`robot_link` 的客户端与 mock 网关可独立使用；真实硬件后端使用外部固定版本的执行组件，安装方式见 [RUNTIME.md](robot_link/RUNTIME.md)。
 
 ## 开发与验证
 
-修改设备接口、配置或通信行为时，同步更新对应文档并记录验证范围。保持两端协议、关节语义、配置和模型版本一致。历史现场记录、软件测试与本次实机验收分开说明；当前运行限制及问题见 [故障排查](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/docs/04_TROUBLESHOOTING.md)。
+修改设备接口、配置或通信行为时，同步更新对应文档并记录验证范围。保持两端协议、关节语义、配置和模型版本一致。历史现场记录、软件测试与本次实机验收分开说明。
 
 第三方驱动、SDK 和模型沿用各目录的来源与许可说明。本机密钥、标定、环境、活动日志及部署备份不作为平台发布内容。

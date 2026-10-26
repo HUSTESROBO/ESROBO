@@ -871,6 +871,10 @@ def main():
     if args.hardware:
         if not args.config:
             ap.error("--hardware requires --config")
+        import importlib.util
+        if importlib.util.find_spec("esrobo_teleop") is None:
+            ap.error("--hardware requires the external esrobo_teleop runtime; "
+                     "install the pinned runtime described in robot_link/RUNTIME.md")
         lock_file = open(f"/tmp/esrobo-robot-link-{os.getuid()}.lock", "w")
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         from .backends import HardwareBackend, DualHardwareBackend
@@ -897,13 +901,17 @@ def main():
         gateway.socket.close()
         backend.close()
         raise
-    from esrobo_teleop.debug.motion_trace import MotionTrace, metadata
-    from .motion_trace import attach
-    motion_trace = MotionTrace(log_path.with_name('execution_' + log_path.name.removeprefix('gateway_')),
-        info=metadata(Path(__file__).resolve().parents[2], role='gateway', config=getattr(backend, 'cfg', None), contract=backend.contract))
-    gateway.motion_trace = motion_trace
-    if motion_trace.enabled:
-        attach(backend, motion_trace)
+    # Mock networking remains standard-library-only. Numerical execution tracing
+    # belongs to the externally installed hardware runtime, not this protocol SDK.
+    motion_trace = None
+    if args.hardware:
+        from esrobo_teleop.debug.motion_trace import MotionTrace, metadata
+        from .motion_trace import attach
+        motion_trace = MotionTrace(log_path.with_name('execution_' + log_path.name.removeprefix('gateway_')),
+            info=metadata(Path(__file__).resolve().parents[2], role='gateway', config=getattr(backend, 'cfg', None), contract=backend.contract))
+        gateway.motion_trace = motion_trace
+        if motion_trace.enabled:
+            attach(backend, motion_trace)
     torque_log = None
     if args.hardware and hasattr(backend, 'attach_torque_recorder'):
         from esrobo_teleop.debug.async_json_log import AsyncJsonLog
@@ -943,8 +951,9 @@ def main():
     finally:
         retention_stopped.set()
         try:
-            motion_trace.close()
-            if gateway.journal is not None:
+            if motion_trace is not None:
+                motion_trace.close()
+            if motion_trace is not None and gateway.journal is not None:
                 try:
                     journal.write(json.dumps(dict(record_type='motion_trace_closed', **motion_trace.stats()))+'\n')
                     journal.flush()

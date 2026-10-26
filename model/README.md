@@ -30,4 +30,4 @@ source install/setup.bash
 ros2 pkg prefix esrobo_waist_with_head
 ```
 
-这样可解析 URDF 中的 `package://esrobo_waist_with_head/meshes/...`。本次整理校验文件完整性，不运行机器人或宣称完成 ROS 构建。应用应锁定模型与控制配置的匹配版本；机器人网关的配置合同仍需两端一致。
+这样可解析 URDF 中的 `package://esrobo_waist_with_head/meshes/...`。本次已在 ROS 2 Humble 下完成资源包构建，并验证安装后的包路径能解析全部 70 个网格；未运行机器人。应用应锁定模型与控制配置的匹配版本；机器人网关的配置合同仍需两端一致。

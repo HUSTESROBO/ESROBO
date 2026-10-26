@@ -1,0 +1,291 @@
+# ESROBO 机器人通信接口
+
+`robot_link` 是 ESROBO 平台应用与机器人主机之间的通信层，包含 Python 客户端、协议实现和执行网关。应用在 Ubuntu/Linux 电脑上生成目标，机器人主机校验目标、约束运动并回传实测反馈。当前 PICO 遥操作是它的一个使用项目，其他应用也可按同一合同接入。
+通信协议详见 [PROTOCOL.md](PROTOCOL.md)，机器人收到目标后的完整执行过程见
+[ROBOT_EXECUTION.md](ROBOT_EXECUTION.md)，开发和验收记录见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+
+## 目录
+
+- [收到关节目标后的执行过程](ROBOT_EXECUTION.md)
+- [职责与当前范围](#职责与当前范围)
+- [先做无硬件通信检查](#先做无硬件通信检查)
+- [部署机器人端](#部署机器人端)
+- [双臂＋双手模式](#双臂双手模式)
+- [接入笔记本计算程序](#接入笔记本计算程序)
+- [图像采集和传输](#图像采集和传输)
+- [停止恢复和诊断](#停止恢复和诊断)
+
+## 职责与当前范围
+
+```mermaid
+flowchart LR
+  P[应用输入：当前 PICO Body / Hand] --> L[笔记本：标定、重定向、IK、网页]
+  L -->|UDP 16000：关节目标| R[机器人：会话校验、轨迹限制、反馈检查]
+  R -->|UDP：实测关节与故障状态| L
+  R --> A[机械臂 CAN / 灵巧手底层驱动]
+  A --> R
+  C[机器人相机采集] -->|独立 MJPEG，经 SSH 转发| L
+```
+
+| 所在位置 | 负责工作 |
+| --- | --- |
+| 笔记本 | 应用输入、标定、重定向、IK、网页或其他应用界面 |
+| 机器人主机 | CAN 通信、实测反馈、原有关节速度/加速度/跟随差/力矩检查、显式安全回零、相机采集 |
+| 网络 | 已计算目标和实测状态；不传控制器原始 CAN 帧，不在机器人运行人体 IK |
+
+机器人端仍保留 FK、轨迹约束和碰撞模型，供受检接近、回零及配置启用的运动检查使用。具体速度、关节范围、力矩与碰撞策略由当前配置和执行实现决定，见 [执行流程](ROBOT_EXECUTION.md)；早期开发记录不作为当前参数说明。
+
+**支持单侧机械臂、可选同侧 L10 灵巧手、单侧仅灵巧手，以及双臂＋双手。** 单侧使用 `--side left/right`，仅灵巧手再增加 `--with-hand --hand-only`，四部件联合使用 `--side both`（自动包含双手）。所有模式默认模拟，真实硬件必须显式 `--hardware`。双侧必须使用一个网关，禁止启动两个单侧网关。仅灵巧手合同拒绝机械臂目标，网关只使能所选手，并持续验证对应机械臂七轴全部失能。腰部、头部保持原模型固定前提。
+当前 PICO Body/Hand 采集、重定向、分区 IK 和客户端入口见 [`laptop_teleop`](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/README.md)，默认机器人地址为 `192.168.10.100`。部署与历史联调记录见该项目文档；新环境仍需分别核验依赖、合同、服务加载和实机行为。旧 SenseGlove 及一体式脚本用于旧路径维护。
+负载拆分不能证明此前整机崩溃已解决，操作系统卡死时 Python 看门狗也无法执行。
+
+## 开发者入口
+
+| 模块 | 作用 |
+| --- | --- |
+| [protocol.py](esrobo_link/protocol.py) | JSON/HMAC 封装及消息、单位、范围等校验 |
+| [session.py](esrobo_link/session.py) | 会话、序号、有效期和最新目标管理 |
+| [client.py](esrobo_link/client.py) | `RobotClient`：连接、接收反馈、提交单侧／双侧目标及保持／停止 |
+| [gateway.py](esrobo_link/gateway.py) | 网络收发、执行协调、状态机和诊断 |
+| [backends.py](esrobo_link/backends.py) | mock 与真实设备后端；硬件实现复用平台运动组件 |
+| [monitor.py](esrobo_link/monitor.py) | 只读检查合同和状态，使用同一独占会话机制 |
+| [camera.py](esrobo_link/camera.py) | 独立图像采集／MJPEG 服务 |
+
+新项目先用 mock 网关确认连接与状态，再按 [协议](PROTOCOL.md)对齐关节顺序、弧度／手部单位、配置合同和输入时效。客户端只提交新鲜目标，不重放旧帧；`accepted_seq` 是接纳序号，不是到位证明。接管、保持、恢复等能力以网关合同为准，旧 `examples/` 辅助函数不覆盖现行完整接管状态机；完整接入参考当前应用的 [app.py](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/src/esrobo_laptop/app.py)。
+
+通信客户端与 mock 网关仅依赖 Python 标准库；真实后端还依赖 `teleoperation` 中的运动组件和机器人 SDK。当前网络关节接口主要面向机械臂／灵巧手，不能因平台存在底盘、腰部驱动就假定这些设备已经具备同样的网络目标接口。
+
+## 先做无硬件通信检查
+
+以下命令从仓库根目录执行。笔记本只需 Python 3.10+；SDK/模拟网关不依赖 ROS、NumPy、GPU、CAN 或机器人 SDK。
+
+```bash
+python3 -m venv .venv-robot-link
+source .venv-robot-link/bin/activate
+python3 -m pip install -e ./robot_link
+mkdir -p ~/.config/esrobo
+(umask 077; python3 -c 'import secrets; from pathlib import Path; p=Path.home()/".config/esrobo/robot-link.key"; f=p.open("x"); f.write(secrets.token_hex(32)+"\n"); f.close()')
+```
+
+密钥命令仅首次运行；文件已存在时拒绝覆盖。通过 SSH/SCP 将同一文件复制到另一台机器的同一路径，设置 `chmod 600 ~/.config/esrobo/robot-link.key`。不要提交密钥到仓库。
+
+终端 A（模拟，不接触硬件）：
+
+```bash
+python3 -m esrobo_link.gateway --side left --with-hand \
+  --key-file ~/.config/esrobo/robot-link.key
+```
+
+终端 B（只读，不发送关节目标）：
+
+```bash
+python3 -m esrobo_link.monitor --host 127.0.0.1 \
+  --key-file ~/.config/esrobo/robot-link.key --seconds 10
+```
+
+应看到 `IDLE`、合同 `mock-v1-left-True` 和模拟反馈。只读监视器不会自动使能，也不是持续跟随客户端；它占用本次会话，不要同时启动另一个控制客户端。
+
+跨机器模拟时，A 加 `--bind <机器人局域网IP>`，B 改 `--host <机器人局域网IP>`。UDP 16000 需要双向可达；推荐同一有线局域网。HMAC 提供认证与完整性，不加密关节数据；不要直接暴露公网，需要跨网时使用受控 VPN。SSH 的普通 `-L` 不转发 UDP。
+
+运行离线测试：
+
+```bash
+PYTHONPATH=robot_link python3 -m unittest discover -s robot_link/tests -v
+```
+
+## 部署机器人端
+
+### 1. 先结束旧控制进程
+
+不能与旧遥操作、厂家运动控制程序或另一个 CAN 控制器同时运行。新网关有进程锁，但旧程序不遵守该锁；必须人工核对。网关初始化会调用原驱动连接流程，可能失能，接触真机前应托稳机械臂。
+
+本轮没有启动真机、使能或运动。先验证两机模拟通信，再做现场硬件验收。
+
+### 2. 可选：只启动灵巧手底层与本机桥
+
+仅 `--with-hand` 需要以下服务，两个终端分别运行。以下是左手；右手改为 `hand_type:=right`、`can:=can_hand1`、`--side right`。
+CAN 接口初始化按原[运行手册](../teleoperation/TELEOPERATION_RUNBOOK.md)准备，不运行旧联合启动脚本，避免又在机器人启动 SenseCom/PICO/网页。
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+ros2 run linker_hand_ros2_sdk linker_hand_sdk --ros-args \
+  -r __node:=linker_hand_sdk_left \
+  -p hand_type:=left -p hand_joint:=L10 -p is_touch:=false \
+  -p can:=can_hand2 -p move_on_start:=false -p modbus:=None
+```
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+python3 teleoperation/bridges/hand_ros_bridge.py --port 15051 --side left
+```
+
+15051/反馈端口只供机器人本机桥使用，笔记本统一连接 16000。手指目标仍经过本机活动轴掩码、步长和速度限制。反馈零位与手指几何映射是不同配置；当前 L20Lite 使用 L10 十轴映射，网关状态必须报告所选侧 `10/10`，否则启动/回零会拒绝，网络模式不跳过这些检查。
+
+### 3. 启动真实网关
+
+在机器人仓库根目录、交互式 tmux 终端运行（将 IP 替换为实际值）：
+
+```bash
+PYTHONPATH="$PWD/robot_link:$PWD/teleoperation/src" \
+  /home/esrobo/miniconda3/envs/teleop_esrobo/bin/python \
+  -m esrobo_link.gateway \
+  --hardware --side left --with-hand --bind <机器人局域网IP> \
+  --config "$PWD/teleoperation/config/teleop_config.yaml" \
+  --key-file ~/.config/esrobo/robot-link.key
+```
+
+纯机械臂去掉 `--with-hand`，也不要启动上面的手驱动。右臂用 `--side right`。真实网关不启动 PICO、SenseGlove、IK 或网页。
+
+启动打印 `contract`，包含关节顺序、URDF 弧度限位、电机映射、速度/加速度及配置指纹。核对笔记本模型和标定后保存该指纹，客户端用 `expected_contract_id` 固定它。修改配置后需要重新核对，不能盲目接受新指纹。
+
+单臂模式输入一次 `e` 后执行准备流程：带手模式先核验臂健康失能，在当前位置受检恢复灵巧手自然张开零位并核验到位；机械臂沿受检路径回到 URDF 零位并确认七轴失能。随后网关进入 `CALIBRATING`，等待笔记本锁定 PICO 标定位姿。接管协议 7 使用两段固定目标接近：先移动 J1–J5，确认到位并停稳后，再移动 J6/J7 到同一次标定目标，手指维持原位；接近碰撞检查覆盖机械臂和腕部，排除掌体及手指；锁定目标后使用独立保活，到位时重新核验新鲜 PICO 输入。网页控制台自动提交 `g`，网关规划外展路径并慢速接近，到位后核验实测姿态和新令牌，再开始完整实时跟随。详见 [接管实现](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/docs/07_CODE_AND_COMPUTATION.md#标定后初始接近)。准备期间输入 `s` 或 `x` 可取消并停止。控制器上电不发反馈时仍明确拒绝；先按旧手册在现场解决反馈问题。
+
+真实双臂网关暂不接受这项自动准备，因为当前没有双臂互碰扫掠检查；`e` 会在运动前拒绝。双臂模式必须使用现场验证过的恢复流程。
+
+显式单臂带手 `r/z`（网页“受检回零并恢复 IDLE”）与 `e` 自动准备均先归零手部，再回臂。已失能分支：先核验七轴新鲜失能和控制器健康，在当前臂姿态受检恢复同侧灵巧手自然张开零位；手部到位后、七轴启动前再独立核验一次手部反馈，然后执行原七轴受检回零。手部失效或取消时不启动臂回零运动。最终再次核验失能和手部零位；显式恢复还核验控制器恢复，成功进入 IDLE，自动准备成功进入 CALIBRATING。此入口不自动失能承重机械臂，手部扫掠、臂漂移和原回零保护仍有效。纯单臂走七轴流程，仅手与双侧 `z` 仍拒绝。
+
+健康锁存保持下，先完成受控制动并核验静止，保持七轴使能受检归零手部，再规划执行臂回零，到位后失能。手部阶段持续核验全使能、控制器、力矩、新鲜反馈和 0.2° 漂移边界；失败不开始臂回零，仅在臂及手部保持均可验证时返回锁存保持。`return_protocol=3` 标识统一手部优先的实现，网页拒绝旧版的回零和自动准备入口；同步后需安全重启网关才生效。
+
+## 双臂＋双手模式
+
+从仓库根目录启动模拟网关，先验证网络：
+
+```bash
+PYTHONPATH=robot_link python3 -m esrobo_link.gateway --side both \
+  --key-file ~/.config/esrobo/robot-link.key
+```
+
+`--side both` 必须带齐双臂和双手，不支持只更新一侧或省略某只手。笔记本使用一个 `RobotClient`、一个会话，四部件共用序号和有效期。任一人体输入过期，应停止整个目标流。
+
+真实模式需要两个灵巧手底层 SDK 进程：按前文左手命令运行一次，再以 `right`、`can_hand1`、节点名 `linker_hand_sdk_right` 运行右手，二者都使用 `move_on_start:=false`。**只启动一个双手桥**，不要再运行两个单手桥：
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+python3 teleoperation/bridges/hand_ros_bridge.py --port 15051 --side both
+```
+
+然后启动一个真实网关：
+
+```bash
+PYTHONPATH="$PWD/robot_link:$PWD/teleoperation/src" \
+  /home/esrobo/miniconda3/envs/teleop_esrobo/bin/python \
+  -m esrobo_link.gateway --hardware --side both --bind <机器人局域网IP> \
+  --config "$PWD/teleoperation/config/teleop_config.yaml" \
+  --key-file ~/.config/esrobo/robot-link.key
+```
+
+- 初始化各臂仍可能失能，必须同时托稳两臂。真实双臂 `e` / `g` 自动准备当前被拒绝，不能通过独立单臂规划绕过互碰检查要求。
+- ACTIVE 周期先读取两臂和双手反馈，再依次下发两臂目标，最后一次发送双手目标。四目标整包校验，硬件发送并非同时完成，不能宣称硬件同步或严格 50 Hz。
+- 任一侧故障、断流或 `s/x/q` 都请求两臂停止，冻结双手新目标。第一臂停止发送失败仍尝试第二臂。`d` 会尝试失能两臂和双手；`dl`、`dr`、`dh` 分别只对左臂、右臂和双手执行失能。所有失能是否成功都以反馈为准。
+- **双侧模式暂不提供 `z` 自动回零。** 现有碰撞模型只检查单臂与躯干，没有完整的两臂/手之间扫掠路径检查；直接拼接单臂回零可能互撞。`z` 明确拒绝且不发送回程目标，原单臂 `z` 保留。
+- 双侧故障后不会自动解锁，需现场按现有硬件排障流程处理并重新启动网关；不要用切换到单臂网关来绕过另一个机械臂在路径中的实际障碍。运行范围应避开双臂交叉，不提供双臂互撞保护认证。
+
+双侧 API（四个数组均为对应人体新帧的求解结果）：
+
+```python
+client.send_dual_target(
+    left_arm_urdf_rad=q_left.tolist(), right_arm_urdf_rad=q_right.tolist(),
+    left_hand_unit=hand_left.tolist(), right_hand_unit=hand_right.tolist(),
+)
+```
+
+完整启用过程参照 `examples/laptop_integration.py` 中的 `send_dual_solved_frame`：分别传入
+`left_arm/right_arm/left_hand/right_hand` 四路原始输入的本机接收时间；其中任一路过期就不发送。
+IDLE/ARMING 发送四部件的实测保持姿态，ACTIVE 才发送求解目标。反馈位于
+`state["feedback"]["sides"]["left"/"right"]`。可运行的笔记本计算入口及启动步骤见 [`laptop_teleop`](https://github.com/SaluteYan/esrobo/blob/318b1d04786f1b6b11254e62b7628178910cd48c/laptop_teleop/README.md)。
+
+## 接入笔记本计算程序
+
+入口为 `esrobo_link.client.RobotClient` 和 [laptop_integration.py](examples/laptop_integration.py)。
+
+```python
+from esrobo_link import RobotClient
+
+client = RobotClient(robot_ip, 16000, key_file,
+                     expected_contract_id=commissioned_contract_id)
+state = client.connect()
+# 在每个新的、有效的人体求解帧执行：
+state = client.receive(timeout=0.1)
+client.send_target(arm_urdf_rad=q7.tolist(), hand_unit=hand10.tolist())
+# 结束时：
+client.close()  # 最佳努力 STOP；丢包时仍由机器人有效期看门狗处理
+```
+
+上面只展示基础 API；当前真实单臂 `entry_protocol=7` 还必须完成固定目标接近、原始源姿态和到位令牌握手，使用 `laptop_teleop` 的 `Controller` 完成流程。旧示例不具备新的接管握手，不能用于真实单臂启动。不得在定时线程里无限重复最后一帧人体目标来维持网络有效期。输入丢失、求解异常时停止发目标或调用 `stop()`。
+
+- 手臂目标是选定侧 J1–J7 的 **URDF 弧度**，不是角度，也不是电机原始角度。电机方向/偏置仅机器人应用一次。
+- 手目标是 **L10 物理十轴顺序的 0–255 整数**，不是现有 `BodyDevice` 的手指弧度数组。笔记本需复用现有映射、标定和手指顺序；不要直接把弧度乘 255。
+- 未带手时 `hand_unit=None`。Python/NumPy 数组使用 `.tolist()` 得到普通 Python 数值。
+- 真实单臂先以 `e` 完成回零与参考标定，再以 `g` 冻结完整目标并受检接近，完成新令牌握手才进入 ACTIVE。后续按原限速跟踪。
+- 网页用 `feedback.arm_urdf_rad` 显示实际机器人，人体骨架/重定向目标/IK 结果在笔记本各自绘制；不能把接收成功当作已经到位。
+- `accepted_seq` 仅表示通过协议校验；反馈才是执行结果。SDK 不会自动连接后使能、不自动重发、不自动回零。
+
+## 图像采集和传输
+
+图像独立进程，HTTP 仅监听机器人 `127.0.0.1:18080`。首版为彩色 JPEG；不包含深度、相机内参、硬件同步或 WebRTC。
+
+已有 ROS 相机发布 JPEG `sensor_msgs/CompressedImage` 时，优先原样转发，避免再次编码（先用 `ros2 topic list` 核对主题）：
+
+```bash
+source /opt/ros/humble/setup.bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+PYTHONPATH=robot_link python3 -m esrobo_link.camera --source ros \
+  --topic /camera/color/image_raw/compressed
+```
+
+没有 ROS 相机进程时可直接 RealSense 采集；选用已安装 `pyrealsense2`、NumPy、OpenCV 的 Python 环境：
+
+```bash
+PYTHONPATH=robot_link python3 -m esrobo_link.camera \
+  --source realsense --width 640 --height 480 --fps 15
+```
+
+同一相机不要同时用两种采集方式。直接采集仍有 CPU JPEG 编码开销，可从 6/15 fps 开始；显示、分析和网页合成移到笔记本。
+
+笔记本建立 SSH 转发：
+
+```bash
+ssh -N -L 18080:127.0.0.1:18080 esrobo@<机器人局域网IP>
+```
+
+浏览器打开 `http://127.0.0.1:18080/stream.mjpg`，或笔记本网页用该 URL。每个图像包含帧号、时间戳、坐标帧名。RealSense 直采时间为主机到达时间；ROS 来源保留消息时间，仿真时钟下不能当真实 UTC。两机时间戳没有自动同步，不能直接相减作为精确延迟。
+只保留最新一帧、最多两路观看、采集停滞结束连接；图像不会阻塞关节 UDP 通道。
+
+## 停止恢复和诊断
+
+新网关使用逐行终端输入，**以下按键需要 Enter**；与旧遥操作原始按键模式不同。
+
+| 操作 | 行为 |
+| --- | --- |
+| `e` | IDLE 下受检回零、验证失能，开始 PICO 标定 |
+| `g` | 单臂标定完成且完整目标稳定后，检查并规划接管路径，通过后慢速运动 |
+| `s` / `x` | 停止跟随并请求电子停止，保持 FAULT 闭锁 |
+| `d` | 请求失能两臂和双手，并记录是否确认；不回零 |
+| `dl` / `dr` | 先停止当前会话，再仅失能左臂 / 右臂，并记录反馈确认结果 |
+| `dh` | 先停止当前会话，再仅关闭双手命令输出 |
+| `z` | 单侧：避碰规划、安全回零及失能；双侧：暂不支持，明确拒绝 |
+| `r` | 故障后显式恢复：仅灵巧手核验失能与新鲜反馈后回到 IDLE；单臂复用 `z` 受检回零；双臂拒绝 |
+| `q` / Ctrl+C / SIGTERM | 请求电子停止并退出，不隐式回零或自动失能 |
+| 网络断流/目标有效期耗尽 | ACTIVE/ARMING/接管检查与执行阶段进入 FAULT，取消运动并请求电子停止 |
+
+`stop_send_returned=true` 只表示调用返回，不是机械停止/失能证明。看实测反馈、七轴 `enable_states`、控制器状态；反馈过期时状态为未知。`dl/dr/dh` 会先闭锁整个目标会话，避免剩余部件继续跟随；随后只失能所选部件。手部停止继续发新目标，保留原目标，不自动张开。仅灵巧手故障后可用 `r` 核验失能与反馈并恢复 `IDLE`；单臂故障后须现场排障，`r`/`z` 成功受检回零后才重新 `e`；双侧按现场流程恢复。重连不自动恢复。
+
+默认日志 `robot_link/log/gateway_<时间>.jsonl`，可用 `--log-file <新文件路径>` 指定。记录状态变化及约 5 Hz 的目标、实测反馈、反馈缓存年龄、剩余有效期、序号、拒绝原因和回零结果，不记录密钥或会话令牌。路径默认被 Git 忽略。
+
+常见拒绝：
+
+| 提示 | 排查 |
+| --- | --- |
+| `no authenticated robot state` | IP/UDP、防火墙、密钥、网关是否还在运行 |
+| `endpoint already owned` | 退出旧客户端；停止后等待会话空闲至少 1 秒 |
+| `side/configuration contract mismatch` | 侧别和配置版本，不靠修改包绕过 |
+| `joint target lease expired` | 人体输入、IK 耗时、网络往返延迟；不要用旧帧保活 |
+| `fresh seven-joint feedback ... required` | 机器人 CAN/控制器状态，不是 PICO 标定失败 |
+| `hand ... natural-open ...` | 核对独立反馈零位、实际开位和手部反馈 |
+| `return failed` / geometry 拒绝 | 阅读回零诊断，不能自动清故障或强制越过碰撞范围 |

@@ -2,6 +2,8 @@
 
 本目录独立保存整机模型，不包含采集、重定向、IK 或遥操作控制程序。
 
+**[打开在线交互模型 →](https://hustesrobo-model-viewer.abloom-kite-0335.chatgpt.site)**：旋转视角、调节双臂／双手／腰部／头部，观察手指联动，导入和导出模型姿态。该网页使用约 9.2 MB 的轻量化显示网格，保留关节树、轴与限位，不连接真机，不用于碰撞判断；原始高精度模型仍以本目录为准。
+
 - [URDF](esrobo_waist_with_head/urdf/esrobo_waist_with_head.urdf)：底盘、腰部、头部、NERO 双臂、力传感器安装件和 L20Lite 双手；关节与 mimic 定义保持来源版本。
 - [meshes](esrobo_waist_with_head/meshes/)：URDF 引用的全部 70 个视觉／碰撞网格，含 STL 和 DAE。
 - [SOURCE.json](esrobo_waist_with_head/SOURCE.json)：模型来源、固定版本、每个文件的大小和 SHA256。
